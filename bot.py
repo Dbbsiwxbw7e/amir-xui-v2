@@ -38,7 +38,7 @@ def refresh_active(ctx, uid):
 def get_api(ctx):
     return RailwayAPI(active_token(ctx)) if active_token(ctx) else None
 
-async def run_blocking(fn, *a): return asyncio.to_thread(fn, *a)
+async def run_blocking(fn, *a): return await asyncio.to_thread(fn, *a)
 
 
 def _require_token_wrap(fn):
