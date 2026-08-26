@@ -30,7 +30,11 @@ class RailwayAPI:
             raise RailwayError(f"HTTP {r.status_code}: {r.text[:200]}")
         data = r.json()
         if data.get("errors"):
-            raise RailwayError("; ".join(e.get("message", "?") for e in data["errors"]))
+            msg = "; ".join(e.get("message", "?") for e in data["errors"])
+            if "Problem processing request" in msg or "limit exceeded" in msg:
+                msg += ("\n💡 احتمالاً سقف Free plan پر شده — چند پروژه قدیمی رو "
+                        "از داشبورد Railway حذف کن یا اکانت جدید بساز.")
+            raise RailwayError(msg)
         return data.get("data", {})
 
     # ── account ──

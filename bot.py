@@ -172,6 +172,7 @@ async def cmd_deploy(update, ctx):
     # project + env
     try:
         ws_id, email = await run_blocking(api.whoami)
+        await say(status, ui.progress(0, total, f"👤 اکانت فعال: <code>{email}</code>"))
         proj = await run_blocking(api.create_project, config.PROJECT_NAME, ws_id)
         pid = proj["id"]
         envs = await run_blocking(api.get_environments, pid)
@@ -481,6 +482,28 @@ async def cmd_status(update, ctx):
         await say(status, f"{ui.header('خطا ⛔️')}\n\n❌ {e}")
 
 
+
+async def cmd_whoami(update, ctx):
+    """Debug: show which Railway account is currently active."""
+    refresh_active(ctx, update.effective_user.id)
+    tok = active_token(ctx)
+    if not tok:
+        await update.message.reply_text(ui.NOT_CONNECTED, parse_mode="HTML")
+        return
+    st = await update.message.reply_text(ui.header("در حال بررسی... 🔍"), parse_mode="HTML")
+    try:
+        _, email = await run_blocking(RailwayAPI(tok).whoami)
+        n_proj = len(await run_blocking(RailwayAPI(tok).list_projects))
+        await say(st,
+                  f"{ui.header('اکانت فعال 👤')}\n\n"
+                  f"📧 <code>{email}</code>\n"
+                  f"🏷 لیبل: <b>{ACC.active_label(update.effective_user.id)}</b>\n"
+                  f"📦 پروژه‌ها: <b>{n_proj}</b>\n\n"
+                  f"{ui.MID}\n⚠️ اگه سقف Free plan پر باشه، دپلوی شکست می‌خوره.")
+    except RailwayError as e:
+        await say(st, f"{ui.header('خطا ⛔️')}\n\n❌ {e}")
+
+
 # ════════════════════════════════════════════
 #  ROUTER
 # ════════════════════════════════════════════
@@ -545,6 +568,7 @@ def main():
     app.add_handler(CommandHandler("cancel", cancel_cmd))
     app.add_handler(CommandHandler("deploy", cmd_deploy))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("whoami", cmd_whoami))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
