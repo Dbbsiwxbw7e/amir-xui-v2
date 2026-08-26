@@ -32,6 +32,7 @@ class Wizard:
         self.env_id = ""
         self.links = []           # [(panel, vless_url)]
         self.error = ""
+        self.errors = []          # per-panel error details
 
     # ── stage 1: deploy panels + inbounds ──
     async def deploy(self, status_cb) -> bool:
@@ -62,11 +63,13 @@ class Wizard:
                                         "url": f"https://{dom}" if dom else "",
                                         "status": "WAITING"})
                 except AppError as e:
+                    self.errors.append(f"{p}: {e.user_msg[:80]}")
                     log.warning("provision %s: %s", p, e)
 
         await asyncio.gather(*(make(n) for n in config.PANELS))
         if not self.panels:
-            self.fail("هیچ سرویسی ساخته نشد.")
+            reason = "; ".join(self.errors[:3]) or "دلیل نامشخص"
+            self.fail(f"هیچ سرویسی ساخته نشد.\n🔍 {reason}")
             return False
 
         # poll deployments
