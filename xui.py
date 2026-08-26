@@ -52,11 +52,11 @@ class Panel:
 
     # ── ws+tls inbound (amir_xu spec) ──
     def create_ws_tls_inbound(self, uuid, email, domain, port, path):
+        # NOTE: TLS is terminated at Railway's edge. The inbound itself must be
+        # plain ws (security=none), otherwise Xray has no cert and handshakes fail.
         stream = {
             "network": "ws",
-            "security": "tls",
-            "tlsSettings": {"serverName": domain, "alpn": ["http/1.1"],
-                            "certificates": [], "allowInsecure": False},
+            "security": "none",
             "wsSettings": {"path": path, "headers": {"Host": domain}},
         }
         return self._call("POST", "/panel/api/inbounds/add", {
