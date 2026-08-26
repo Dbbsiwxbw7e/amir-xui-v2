@@ -1,18 +1,18 @@
-"""
-All UI text and keyboards — boxed console style.
-"""
+"""All user-facing text + keyboards."""
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import config
 
 APP = "⚡️ AMIR X-UI V2 ⚡️"
-TOP, MID, BOT_, S = "╔══════════════════════╗", "╠══════════════════════╣", "╚══════════════════════╝", "║"
+TOP = "╔══════════════════════╗"
+MID = "╠══════════════════════╣"
+BOT = "╚══════════════════════╝"
+S = "║"
 
-def header(sub=""):
+def hdr(sub=""):
     h = f"{TOP}\n{S}  <b>{APP}</b>  {S}\n"
-    if sub: h += f"{S}  <i>{sub}</i>  {S}\n"
-    return h + BOT_
-
-ICONS = {"SUCCESS":"🟢","FAILED":"🔴","CRASHED":"💥","DEPLOYING":"🟡",
-         "BUILDING":"🟡","WAITING":"⚪️","REMOVED":"⚫️"}
+    if sub:
+        h += f"{S}  <i>{sub}</i>  {S}\n"
+    return h + BOT
 
 MENU = InlineKeyboardMarkup([
     [InlineKeyboardButton("👤 اکانت‌ها", callback_data="sec_account"),
@@ -22,40 +22,40 @@ MENU = InlineKeyboardMarkup([
 
 def welcome(name="", account=""):
     who = f"، {name}" if name else ""
-    badge = f"👤 اکانت فعال: <b>{account}</b>\n" if account else "⚪️ هنوز اکانتی اضافه نکردی\n"
-    return (f"{header(f'سلام{who} 👋')}\n\n"
-            f"{badge}"
-            "🎛 کنترل کامل 3x-ui روی Railway\n\n"
-            f"{MID}\n👇 یک بخش رو انتخاب کن:")
+    badge = (f"👤 اکانت فعال: <b>{account}</b>\n" if account
+             else "⚪️ اکانتی ثبت نشده — بخش 👤 اکانت‌ها\n")
+    return (f"{hdr(f'سلام{who} 👋')}\n\n{badge}"
+            "🎛 مدیریت کامل 3x-ui روی Railway\n\n"
+            f"{MID}\n👇 انتخاب کن:")
 
-NOT_CONNECTED = (f"{header('قفل 🔒')}\n\n"
+NOT_CONNECTED = (f"{hdr('قفل 🔒')}\n\n"
                  "اول از بخش 👤 <b>اکانت‌ها</b> یه اکانت Railway اضافه کن.\n\n"
-                 f"{BOT_}")
+                 f"{BOT}")
 
-HELP = (f"{header('راهنما 📖')}\n\n"
-        "👤 <b>اکانت‌ها</b> — افزودن/سوییچ/حذف توکن Railway\n\n"
+HELP = (f"{hdr('راهنما 📖')}\n\n"
+        "👤 <b>اکانت‌ها</b> — چند توکن Railway، سوییچ آنی\n\n"
         "🚀 <b>دپلوی</b> — فلو ۴ مرحله‌ای:\n"
-        "     1️⃣ دپلوی پنل‌ها + ساخت ۴ اینباند\n"
+        "     1️⃣ دپلوی پنل‌ها + ۴ اینباند ws+tls هرکدوم\n"
         "     2️⃣ ⏸ مکث → ست ریجن توسط شما\n"
         "     3️⃣ 🌐 ست دامنه‌ها\n"
         "     4️⃣ 🔗 اتصال نودها\n\n"
-        "🔌 <b>پروتکل‌ها</b> — ws+tls و بقیه\n\n"
+        "🔌 <b>پروتکل‌ها</b> — ساخت اینباند ws+tls روی هر پنل\n\n"
         f"{MID}\n⚠️ بعد از افزودن اکانت، پیام حاوی توکن رو پاک کن 🗑")
 
 # ── accounts ──
-def accounts_text(accounts, active):
-    if not accounts: body = "  (خالی)"
+def accounts_text(accs, active):
+    if not accs:
+        body = "  (خالی)"
     else:
         body = "\n".join(
             f'{"🟢" if a["active"] else "⚪️"} <b>{a["label"]}</b>'
             + (f' · <code>{a["email"]}</code>' if a.get("email") else "")
-            for a in accounts)
-    return (f"{header('اکانت‌ها 👤')}\n\n{body}\n\n{MID}\n"
-            f"🟢 فعال: <b>{active or '—'}</b>")
+            for a in accs)
+    return f"{hdr('اکانت‌ها 👤')}\n\n{body}\n\n{MID}\n🟢 فعال: <b>{active or '—'}</b>"
 
-def accounts_keyboard(accounts):
+def accounts_kb(accs):
     rows = []
-    for a in accounts:
+    for a in accs:
         lbl = a["label"]
         if a["active"]:
             rows.append([InlineKeyboardButton(f"🟢 {lbl} (فعال)", callback_data="noop")])
@@ -69,37 +69,43 @@ def accounts_keyboard(accounts):
 ADD_ACCOUNT = ("{h}\n\n1️⃣ یه <b>اسم</b> بفرست (مثلاً <code>اصلی</code>)\n"
                "2️⃣ بعد <b>توکن Railway</b> رو بفرست\n\nلغو: /cancel")
 
-# ── deploy section ──
+# ── deploy ──
 def deploy_menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 دپلوی کامل (۴ اینباند + دامنه + نود)",
-                              callback_data="go_deploy")],
+        [InlineKeyboardButton("🚀 شروع فلو کامل", callback_data="go_deploy")],
         [InlineKeyboardButton("🔙 منوی اصلی", callback_data="refresh_menu")],
     ])
 
 DEPLOY_WELCOME = (
-    f"{header('دپلوی 🚀')}\n\n"
-    "فلو خودکار:\n\n"
-    "1️⃣ 📦 دپلوی پنل‌ها + ساخت ۴ اینباند ws+tls\n"
-    "2️⃣ ⏸ مکث → شما ریجن‌ها رو توی پنل‌ها ست می‌کنید\n"
-    "3️⃣ 🌐 با زدن «ادامه»، دامنه‌ها ست میشن\n"
-    "4️⃣ 🔗 نودها به پنل اصلی وصل میشن\n\n"
-    f"{MID}\n👇 آماده‌ای؟"
-)
+    f"{hdr('دپلوی 🚀')}\n\n"
+    "1️⃣ 📦 دپلوی پنل‌ها + ۴ اینباند ws+tls هر پنل\n"
+    "2️⃣ ⏸ مکث → ریجن‌ها رو خودت ست می‌کنی\n"
+    "3️⃣ 🌐 ادامه → دامنه‌ها ست میشن\n"
+    "4️⃣ 🔗 ادامه → نودها وصل میشن\n\n"
+    f"{MID}\n👇 آماده‌ای?")
 
-def progress(step, total, title, detail=""):
-    filled = round(step*14/max(total,1))
-    bar = "▓"*filled + "░"*(14-filled)
-    txt = (f"{header('در حال اجرا...')}\n\n{bar} <b>"
-           f"{round(step*100/max(total,1))}%</b>\n📍 {step}/{total}\n\n{MID}\n{title}")
-    if detail: txt += f"\n{detail}"
-    return txt
+STAGE2_PROMPT = ("✅ پنل‌ها و اینباندها آماده!\n\n"
+                 "⏸ حالا وارد هر پنل شو و ریجن رو تنظیم کن:\n")
 
-def panel_rows(panels):
-    s = ""
-    for p in panels:
-        ic = ICONS.get(p.get("status",""), "⏳")
-        s += f"\n{ic} <b>{p['name']}</b> · {p.get('region','')}"
-        if p.get("url"):
-            s += f"\n     🌐 {p['url'].replace('https://','')}/managepanel/"
-    return s
+def stage2_kb():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ ست کردم — ادامه (دامنه‌ها)", callback_data="flow_domains")]])
+
+def stage4_kb():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔗 مرحله آخر — اتصال نودها", callback_data="flow_nodes")],
+        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="refresh_menu")]])
+
+# ── protocols ──
+def proto_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌐 WS + TLS", callback_data="proto_pick")],
+        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="refresh_menu")],
+    ])
+
+PROTO_WELCOME = (
+    f"{hdr('پروتکل‌ها 🔌')}\n\n"
+    "🌐 <b>WS + TLS</b>\n"
+    "     └ VLESS + WebSocket + TLS\n"
+    f"     └ پورت {config.IN_PORT} · مسیر {config.IN_PATH}\n\n"
+    f"{MID}\n👇 انتخاب کن:")

@@ -3,5 +3,5 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV ACCOUNTS_FILE=/data/accounts.json
+ENV DATA_DIR=/data
 CMD ["python", "bot.py"]
