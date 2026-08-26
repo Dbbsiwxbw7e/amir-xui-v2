@@ -12,6 +12,8 @@ from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandl
 
 import config, ui
 from accounts import Accounts
+from tcp import TCPProxy, normalize_domains
+from tcp_state import TCPState
 from errors import AppError, PanelError
 from railway import Railway
 from wizard import Wizard
@@ -21,6 +23,7 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("amir-v2")
 
 ACC = Accounts(os.path.join(config.DATA_DIR, "accounts.json"))
+TCP = TCPState()
 
 
 # ── helpers ──
@@ -63,7 +66,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_cancel(update, ctx):
     uid = update.effective_user.id
     st = ctx.user_data.setdefault(uid, {})
-    cleared = st.pop("await_acc_label", False)
+    cleared = (st.pop("await_acc_label", False) or st.pop("await_domain", False))
     wiz = ctx.bot_data.pop(f"wiz_{uid}", None)
     if wiz and wiz.state != "idle":
         wiz.state = "idle"
@@ -77,6 +80,16 @@ async def cmd_cancel(update, ctx):
 async def on_text(update, ctx):
     uid = update.effective_user.id
     st = ctx.user_data.setdefault(uid, {})
+
+    if st.pop("await_domain", False):
+        d = update.message.text.strip()
+        okk = TCP.add_domain(d)
+        ds = TCP.domains()
+        msg = f"✅ <code>{d}</code> اضافه شد." if okk else f"⚠️ <code>{d}</code> قبلاً هست."
+        await update.message.reply_text(
+            ui.domains_text(ds) + f"\n\n{msg}",
+            reply_markup=ui.domains_kb(ds), parse_mode="HTML")
+        return
 
     if st.pop("await_acc_label", False):
         st["pending_label"] = update.message.text.strip()[:32]
@@ -274,6 +287,194 @@ def _qmsg(update):
     return update.callback_query.message if update.callback_query else update.message
 
 
+
+# ════════════════════════ TCP PROXY ════════════════════════
+async def show_tcp(update, ctx, q):
+    await q.edit_message_text(ui.TCP_WELCOME, reply_markup=ui.tcp_menu(),
+                              parse_mode="HTML")
+
+
+def _panels_for(ctx, uid):
+    wiz = ctx.bot_data.get(f"wiz_{uid}")
+    return [p for p in (wiz.panels if wiz else []) if p.get("sid")] if wiz else []
+
+
+async def start_tcp(update, ctx, q):
+    uid = update.effective_user.id
+    panels = _panels_for(ctx, uid)
+    if not panels:
+        # rediscover from newest project
+        tok = token_of(ctx)
+        if not tok:
+            await q.edit_message_text(ui.NOT_CONNECTED, parse_mode="HTML")
+            return
+        from railway import Railway
+        api = Railway(tok)
+        try:
+            projs = await asyncio.to_thread(api.projects)
+            if not projs:
+                await q.edit_message_text(ui.hdr("پروژه‌ای نیست 📭"), parse_mode="HTML")
+                return
+            proj = projs[0]
+            env_id = await asyncio.to_thread(api.first_env, proj["id"])
+            tcp_api = TCPProxy(tok)
+            svcs = []
+            # list services via project query
+            d = api.gql("""query($id:String!){project(id:$id){
+                services(first:10){edges{node{id name}}}}}""", {"id": proj["id"]})
+            for e in d["project"]["services"]["edges"]:
+                svcs.append({"name": e["node"]["name"], "sid": e["node"]["id"],
+                             "url": "", "status": "WAITING"})
+            wiz = Wizard(api)
+            wiz.panels = svcs
+            ctx.bot_data[f"wiz_{uid}"] = wiz
+            panels = svcs
+        except Exception as e:
+            await q.edit_message_text(f"{ui.hdr('خطا ⛔️')}\n\n❌ {e}", parse_mode="HTML")
+            return
+
+    rows = [[InlineKeyboardButton(p["name"], callback_data=f"tcpsvc:{p['sid']}:{p['name']}")]
+            for p in panels]
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="sec_tcp")])
+    await q.edit_message_text(ui.hdr("چرخش TCP روی کدوم پنل؟ 🛰"),
+                              reply_markup=InlineKeyboardMarkup(rows),
+                              parse_mode="HTML")
+
+
+async def run_tcp_panel(update, ctx, q, sid, name):
+    uid = update.effective_user.id
+    acc, _ = ACC.get(uid)
+    if not acc:
+        await q.edit_message_text(ui.NOT_CONNECTED, parse_mode="HTML")
+        return
+    api = Railway(acc["token"])
+    env_id = ""
+    pid = ctx.user_data.get("_proj_id") or ""
+    if pid:
+        env_id = await asyncio.to_thread(api.first_env, pid)
+
+    prefs = TCP.prefs(uid)
+    count = int(prefs.get("count", 2))
+    port = int(prefs.get("port", 443))
+    mode = prefs.get("mode", "good")
+    targets = normalize_domains(",".join(TCP.domains())) if mode == "good" else None
+
+    stop = {"kill": False}
+    ctx.bot_data[f"tcpstop_{uid}"] = stop
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 توقف", callback_data="tcp_stop")]])
+
+    status = await _qmsg(update).reply_text(
+        ui.hdr(f"چرخش {name} — پروکسی ۱/{count} 🛰"), parse_mode="HTML",
+        reply_markup=kb)
+
+    results = []
+    lines = []
+
+    def on_progress(m): lines.append(m)
+
+    # assign unique ports: base, +1, ...
+    used = set()
+    try:
+        tcp_api = TCPProxy(acc["token"])
+        existing = await asyncio.to_thread(tcp_api.list, sid, env_id)
+        used = {p.get("applicationPort") for p in existing
+                if p.get("applicationPort")}
+    except Exception:
+        pass
+    ports, cand = [], port
+    while len(ports) < count:
+        if cand not in used: ports.append(cand)
+        cand += 1
+
+    for i in range(1, count + 1):
+        port_i = ports[i-1]
+        lines.clear()
+        await say(status,
+                  ui.hdr(f"🛰 {name} — پروکسی {i}/{count}")
+                  + f"\n\n<pre>{lines[-6:] and chr(10).join(lines[-6:]) or 'شروع...'}</pre>"
+                  + f"\n\n🎯 {'🔀 تأیید' if mode=='good' else '🎲 رندم'} · 🔌 پورت {port_i}",
+                  keyboard=kb)
+
+        def work():
+            t = TCPProxy(acc["token"])
+            return t.rotate(sid, env_id, port_i, targets=targets,
+                            max_tries=30, cooldown=8, on_progress=on_progress,
+                            cancel=lambda: stop["kill"])
+        try:
+            res = await asyncio.wait_for(asyncio.to_thread(work), timeout=900)
+        except Exception as e:
+            res = None; lines.append(f"خطا: {e}")
+
+        if res:
+            dom, prt = res
+            results.append((name, f"{dom}:{prt}"))
+            await say(status, f"{ui.hdr(f'✅ {name} — {i}/{count}')}"
+                              f"\n\n🎯 <code>{dom}:{prt}</code>")
+        else:
+            if stop.get("kill"): break
+            results.append((name, "❌ به هدف نرسید"))
+
+    ctx.bot_data.pop(f"tcpstop_{uid}", None)
+    summary = "\n".join(
+        f"{'✅' if '❌' not in v else '❌'} <b>{n}</b> → <code>{v}</code>"
+        for n, v in results)
+    await say(status, f"{ui.hdr('نتیجه TCP Proxy 🛰')}\n{ui.MID}\n{summary}")
+
+
+async def handle_tcp(update, ctx, q, data):
+    uid = update.effective_user.id
+
+    if data == "sec_tcp":
+        await show_tcp(update, ctx, q); return
+    if data == "tcp_start":
+        await start_tcp(update, ctx, q); return
+    if data == "tcp_settings":
+        await q.edit_message_text(ui.tcp_settings_text(TCP.prefs(uid)),
+                                  reply_markup=ui.tcp_settings_kb(TCP.prefs(uid)),
+                                  parse_mode="HTML")
+        return
+    if data.startswith("tcpset_"):
+        kind, _, val = data.partition(":")
+        field = {"tcpset_count":"count","tcpset_port":"port","tcpset_mode":"mode"}[kind]
+        TCP.set_pref(uid, **{field: int(val) if field != "mode" else val})
+        p = TCP.prefs(uid)
+        await q.edit_message_text(ui.tcp_settings_text(p),
+                                  reply_markup=ui.tcp_settings_kb(p), parse_mode="HTML")
+        return
+    if data == "tcp_domains":
+        ds = TCP.domains()
+        await q.edit_message_text(ui.domains_text(ds),
+                                  reply_markup=ui.domains_kb(ds), parse_mode="HTML")
+        return
+    if data.startswith("tcpdel:"):
+        TCP.remove_domain(data.split(":",1)[1])
+        ds = TCP.domains()
+        await q.edit_message_text(ui.domains_text(ds),
+                                  reply_markup=ui.domains_kb(ds), parse_mode="HTML")
+        return
+    if data == "tcpreset":
+        TCP.reset_domains(); ds = TCP.domains()
+        await q.edit_message_text(ui.domains_text(ds),
+                                  reply_markup=ui.domains_kb(ds), parse_mode="HTML")
+        return
+    if data == "tcpadd_hint":
+        ctx.user_data.setdefault(uid, {})["await_domain"] = True
+        await q.edit_message_text(
+            f"{ui.hdr('افزودن دامنه ➕')}\n\ن اسم دامنه رو بفرست:\n"
+            "<code>mybox</code> یا <code>mybox.proxy.rlwy.net</code>\n\nلغو: /cancel",
+            parse_mode="HTML")
+        return
+    if data == "tcp_stop":
+        stop = ctx.bot_data.get(f"tcpstop_{uid}")
+        if stop: stop["kill"] = True; await q.answer("در حال توقف… 🛑")
+        else: await q.answer("چرخشی در جریان نیست", show_alert=True)
+        return
+    if data.startswith("tcpsvc:"):
+        _, sid, name = data.split(":", 2)
+        await run_tcp_panel(update, ctx, q, sid, name)
+        return
+
+
 # ════════════════════════ ROUTER ════════════════════════
 async def on_callback(update, ctx):
     q = update.callback_query
@@ -311,6 +512,9 @@ async def on_callback(update, ctx):
         return
     if data == "sec_proto":
         await show_proto(update, ctx, q)
+        return
+    if data == "sec_tcp" or data.startswith(("tcp", "tcpsvc:")):
+        await handle_tcp(update, ctx, q, data)
         return
     if data.startswith(("proto_", "wstls:")):
         await do_proto(update, ctx, q, data)

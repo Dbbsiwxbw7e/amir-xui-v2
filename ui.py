@@ -17,7 +17,8 @@ def hdr(sub=""):
 MENU = InlineKeyboardMarkup([
     [InlineKeyboardButton("👤 اکانت‌ها", callback_data="sec_account"),
      InlineKeyboardButton("🚀 دپلوی", callback_data="sec_deploy")],
-    [InlineKeyboardButton("🔌 پروتکل‌ها", callback_data="sec_proto")],
+    [InlineKeyboardButton("🛰 TCP Proxy", callback_data="sec_tcp"),
+     InlineKeyboardButton("🔌 پروتکل‌ها", callback_data="sec_proto")],
 ])
 
 def welcome(name="", account=""):
@@ -109,3 +110,58 @@ PROTO_WELCOME = (
     "     └ VLESS + WebSocket + TLS\n"
     f"     └ پورت {config.IN_PORT} · مسیر {config.IN_PATH}\n\n"
     f"{MID}\n👇 انتخاب کن:")
+
+
+# ── TCP proxy section ──
+def tcp_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛰 چرخش TCP Proxy", callback_data="tcp_start")],
+        [InlineKeyboardButton("📋 دامنه‌های پیشنهادی", callback_data="tcp_domains"),
+         InlineKeyboardButton("⚙️ تنظیمات", callback_data="tcp_settings")],
+        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="refresh_menu")],
+    ])
+
+TCP_WELCOME = (
+    f"{hdr('TCP Proxy Manager 🛰')}\n\n"
+    "چرخش TCP Proxy تا رسیدن به دامنه‌های خوش‌اسم\n"
+    "(monorail, nozomi, kodama...)\n\n"
+    "🔢 تعداد · 🔌 پورت · 🎯 حالت — از ⚙️ تنظیمات\n"
+    "📋 لیست دامنه‌ها قابل ویرایشه\n\n"
+    f"{MID}\n👇 انتخاب کن:")
+
+def tcp_settings_text(p):
+    mode = "🔀 دامنه‌های تأیید" if p.get("mode","good")=="good" else "🎲 رندم"
+    return (f"{hdr('تنظیمات TCP ⚙️')}\n\n"
+            f"🔢 تعداد برای هر پنل: <b>{p.get('count',2)}</b>\n"
+            f"🔌 پورت شروع: <b>{p.get('port',443)}</b> (بعدی +۱)\n"
+            f"🎯 حالت: {mode}\n\n{MID}\n👇 تغییر بده:")
+
+def tcp_settings_kb(p):
+    def mark(on): return "✅ " if on else ""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"{mark(p.get('count')==1)}1", callback_data="tcpset_count:1"),
+         InlineKeyboardButton(f"{mark(p.get('count')==2)}2", callback_data="tcpset_count:2"),
+         InlineKeyboardButton(f"{mark(p.get('count')==3)}3", callback_data="tcpset_count:3"),
+         InlineKeyboardButton(f"{mark(p.get('count')==4)}4", callback_data="tcpset_count:4")],
+        [InlineKeyboardButton(f"{mark(p.get('port')==443)}443", callback_data="tcpset_port:443"),
+         InlineKeyboardButton(f"{mark(p.get('port')==8080)}8080", callback_data="tcpset_port:8080"),
+         InlineKeyboardButton(f"{mark(p.get('port')==2053)}2053", callback_data="tcpset_port:2053")],
+        [InlineKeyboardButton(f"{mark(p.get('mode','good')=='good')}🔀 تأیید", callback_data="tcpset_mode:good"),
+         InlineKeyboardButton(f"{mark(p.get('mode')=='rnd')}🎲 رندم", callback_data="tcpset_mode:rnd")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="sec_tcp")],
+    ])
+
+def domains_text(domains):
+    body = "\n".join(f"  {i}. <code>{d}</code>" for i,d in enumerate(domains,1))
+    return (f"{hdr('دامنه‌های پیشنهادی 📋')}\n\n{body or '  (خالی)'}"
+            f"\n\n{MID}\n📊 تعداد: <b>{len(domains)}</b>")
+
+def domains_kb(domains):
+    rows = []
+    for d in domains[:12]:
+        short = d.replace(".proxy.rlwy.net","")
+        rows.append([InlineKeyboardButton(f"🗑 {short}", callback_data=f"tcpdel:{d}")])
+    rows.append([InlineKeyboardButton("➕ افزودن", callback_data="tcpadd_hint"),
+                 InlineKeyboardButton("🔄 پیش‌فرض", callback_data="tcpreset")])
+    rows.append([InlineKeyboardButton("🔙 بازگشت", callback_data="sec_tcp")])
+    return InlineKeyboardMarkup(rows)
