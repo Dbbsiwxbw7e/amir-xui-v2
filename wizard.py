@@ -16,6 +16,7 @@ import time
 import uuid
 
 import config
+import requests
 from errors import AppError, PanelError, LimitError
 from railway import Railway
 from xui import Panel, vless_link
@@ -114,17 +115,24 @@ class Wizard:
                             _rows(self.panels)))
             pending = still
 
-        # create inbounds (4 per panel)
+        # create inbounds (4 per panel) — wait for each panel's web UI first
         await status_cb(_bar(2, total,
                              f"🔌 ساخت {config.IN_PER_PANEL} اینباند برای هر پنل..."))
         ib_lines = []
+        from xui import wait_ready
         for p in self.panels:
             if p["status"] != "SUCCESS" or not p["url"]:
                 continue
+            await status_cb(f"{_hdr('اینباندها 🔌')}\n{MID}\n"
+                            + "\n".join(ib_lines)
+                            + f"\n\n⏳ منتظر آماده شدن {p['name']}...")
+            await asyncio.to_thread(wait_ready, p["url"], timeout=120)
             try:
                 made = await asyncio.to_thread(
                     _make_inbounds, p["url"], p["name"])
-                ib_lines.append(f"✅ <b>{p['name']}</b> ← {made}/{config.IN_PER_PANEL}")
+                ib_lines.append(f"✅ <b>{p['name']}</b> ← {made}/{config.IN_PER_PANEL}"
+                                if made else
+                                f"⚠️ <b>{p['name']}</b> ← ساخته نشد، دوباره از بخش پروتکل‌ها امتحان کن")
             except PanelError as e:
                 ib_lines.append(f"⚠️ <b>{p['name']}</b> → {e.user_msg[:50]}")
         await status_cb(
@@ -198,53 +206,59 @@ class Wizard:
 
 # ── helpers used by wizard ──
 def _make_inbounds(url, name):
+    """Xray allows ONE inbound per port. So we create ONE ws+tls inbound and add
+    IN_PER_PANEL clients inside it — each client gets its own vless link."""
     c = Panel(url)
     if not c.login():
         raise PanelError(f"ورود به {name} ناموفق")
-    made = 0
-    for k in range(config.IN_PER_PANEL):
+
+    ib = None
+    for candidate in c.inbounds():
+        if int(candidate.get("port") or 0) == config.IN_PORT:
+            ib = candidate          # reuse existing inbound on our port
+            break
+    if not ib:
         r = c.create_ws_tls_inbound(
-            uuid=str(uuid.uuid4()), email=f"{name.lower()}-in{k+1}",
+            uuid=str(uuid.uuid4()), email=f"{name.lower()}-main",
             domain=url.replace("https://", ""),
             port=config.IN_PORT, path=config.IN_PATH)
-        if r.get("success"):
-            made += 1
-    return made
+        if not r.get("success"):
+            raise PanelError(r.get("msg", "ساخت اینباند ناموفق"))
+        for candidate in c.inbounds():
+            if candidate.get("remark") == remark:
+                ib = candidate
+                break
+
+    added = 0
+    import json as _json
+    raw = ib.get("settings")
+    settings = raw if isinstance(raw, dict) else _json.loads(raw or "{}")
+    clients = settings.setdefault("clients", [])
+    have = {cl.get("email") for cl in clients}
+    for k in range(config.IN_PER_PANEL):
+        email = f"{name.lower()}-u{k+1}"
+        if email in have:
+            added += 1
+            continue
+        clients.append({"id": str(uuid.uuid4()), "flow": "", "email": email,
+                        "limitIp": 0, "totalGB": 0, "expiredTime": 0,
+                        "enable": True, "tgId": 0, "subId": ""})
+        added += 1
+    settings["clients"] = clients
+    c._call("POST", "/panel/api/inbounds/update/" + str(ib["id"]),
+            {**ib, "settings": _json.dumps(settings), "up": 0, "down": 0,
+             "total": 0, "expiryTime": 0})
+    return added
 
 
-# ── UI atoms shared with handlers ──
-APP = "⚡️ AMIR X-UI V2 ⚡️"
-TOP = "╔══════════════════════╗"
-MID = "╠══════════════════════╣"
-BOT = "╚══════════════════════╝"
-S = "║"
-ICONS = {"SUCCESS": "🟢", "FAILED": "🔴", "CRASHED": "💥",
-         "DEPLOYING": "🟡", "BUILDING": "🟡", "WAITING": "⚪️"}
-
-
-def _hdr(sub=""):
-    h = f"{TOP}\n{S}  <b>{APP}</b>  {S}\n"
-    if sub:
-        h += f"{S}  <i>{sub}</i>  {S}\n"
-    return h + BOT
-
-
-def _bar(step, total, title, detail=""):
-    filled = round(step * 14 / max(total, 1))
-    bar = "▓" * filled + "░" * (14 - filled)
-    txt = (f"{_hdr('در حال اجرا...')}\n\n{bar} <b>"
-           f"{round(step * 100 / max(total, 1))}%</b>\n"
-           f"📍 {step}/{total}\n\n{MID}\n{title}")
-    if detail:
-        txt += f"\n{detail}"
-    return txt
-
-
-def _rows(panels):
-    out = ""
-    for p in panels:
-        ic = ICONS.get(p.get("status", ""), "⏳")
-        out += f"\n{ic} <b>{p['name']}</b>"
-        if p.get("url"):
-            out += f"\n     🌐 {p['url'].replace('https://', '')}/managepanel/"
-    return out
+def wait_ready(url, timeout=90, every=5):
+    probe = url.rstrip("/") + "/managepanel/"
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            if requests.get(probe, timeout=10).status_code == 200:
+                return True
+        except Exception:
+            pass
+        time.sleep(every)
+    return False
