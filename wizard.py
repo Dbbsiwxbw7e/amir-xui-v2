@@ -24,6 +24,47 @@ from xui import Panel, vless_link
 log = logging.getLogger(__name__)
 
 
+
+
+# ── UI atoms ──
+APP = "⚡️ AMIR X-UI V2 ⚡️"
+TOP = "╔══════════════════════╗"
+MID = "╠══════════════════════╣"
+BOT = "╚══════════════════════╝"
+S = "║"
+ICONS = {"SUCCESS": "🟢", "FAILED": "🔴", "CRASHED": "💥",
+         "DEPLOYING": "🟡", "BUILDING": "🟡", "WAITING": "⚪️"}
+
+
+def _hdr(sub=""):
+    h = f"{TOP}\n{S}  <b>{APP}</b>  {S}\n"
+    if sub:
+        h += f"{S}  <i>{sub}</i>  {S}\n"
+    return h + BOT
+
+
+def _bar(step, total, title, detail=""):
+    filled = round(step * 14 / max(total, 1))
+    bar = "▓" * filled + "░" * (14 - filled)
+    txt = (f"{_hdr('در حال اجرا...')}\n\n{bar} <b>"
+           f"{round(step * 100 / max(total, 1))}%</b>\n"
+           f"📍 {step}/{total}\n\n{MID}\n{title}")
+    if detail:
+        txt += f"\n{detail}"
+    return txt
+
+
+def _rows(panels):
+    out = ""
+    for p in panels:
+        ic = ICONS.get(p.get("status", ""), "⏳")
+        out += f"\n{ic} <b>{p['name']}</b>"
+        if p.get("url"):
+            out += f"\n     🌐 {p['url'].replace('https://', '')}/managepanel/"
+    return out
+
+
+
 class Wizard:
     def __init__(self, api: Railway):
         self.api = api
