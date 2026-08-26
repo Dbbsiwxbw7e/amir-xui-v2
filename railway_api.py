@@ -3,7 +3,7 @@ Railway GraphQL client — requests-based, exception-based, UA set.
 """
 import requests
 
-API_URL = "https://api.railway.app/graphql/v2"
+API_URL = "https://backboard.railway.com/graphql/v2"
 
 
 class RailwayError(Exception):
