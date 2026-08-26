@@ -27,7 +27,13 @@ class RailwayAPI:
         if r.status_code == 401:
             raise RailwayError("توکن Railway نامعتبره.")
         if r.status_code != 200:
-            raise RailwayError(f"HTTP {r.status_code}: {r.text[:200]}")
+            body = r.text[:300]
+            if "Problem processing request" in body or "limit exceeded" in body:
+                raise RailwayError(
+                    "🚫 سقف اکانت Railway پر شده (Free plan محدودیت resource داره).\n"
+                    "💡 راه‌حل: چند پروژه قدیمی رو از داشبورد حذف کن، یا پلن رو ارتقا بده.\n\n"
+                    f"جزئیات: {body}")
+            raise RailwayError(f"HTTP {r.status_code}: {body}")
         data = r.json()
         if data.get("errors"):
             msg = "; ".join(e.get("message", "?") for e in data["errors"])
