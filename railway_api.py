@@ -3,7 +3,7 @@ Railway GraphQL client — requests-based, exception-based, UA set.
 """
 import requests
 
-API_URL = "https://backboard.railway.com/graphql/v2"
+API_URL = "https://api.railway.app/graphql/v2"
 
 
 class RailwayError(Exception):
@@ -30,11 +30,15 @@ class RailwayAPI:
             raise RailwayError("توکن Railway نامعتبره.")
         if r.status_code != 200:
             body = r.text[:300]
-            if "Problem processing request" in body or "limit exceeded" in body:
+            if "Problem processing request" in body:
                 raise RailwayError(
-                    "🚫 سقف اکانت Railway پر شده (Free plan محدودیت resource داره).\n"
-                    "💡 راه‌حل: چند پروژه قدیمی رو از داشبورد حذف کن، یا پلن رو ارتقا بده.\n\n"
-                    f"جزئیات: {body}")
+                    "🚫 Railway اجازه ساخت منبع جدید نمیده. دلایل رایج:\n"
+                    "     • سقف Free plan پر شده (حذف پروژه‌های قدیمی)\n"
+                    "     • اکانت جدید بدون کارت تأییدشده\n"
+                    "     • محدودیت نرخ: هر ۳۰ ثانیه یک پروژه — چند لحظه بعد دوباره امتحان کن\n\n"
+                    f"جزئیات فنی: {body}")
+            if "limit exceeded" in body:
+                raise RailwayError("🚫 سقف Free plan پر شده — پروژه‌های قدیمی رو حذف کن.")
             raise RailwayError(f"HTTP {r.status_code}: {body}")
         data = r.json()
         if data.get("errors"):

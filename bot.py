@@ -173,7 +173,12 @@ async def cmd_deploy(update, ctx):
     try:
         ws_id, email = await run_blocking(api.whoami)
         await say(status, ui.progress(0, total, f"👤 اکانت فعال: <code>{email}</code>"))
-        proj = await run_blocking(api.create_project, config.PROJECT_NAME, ws_id)
+        try:
+            proj = await run_blocking(api.create_project, config.PROJECT_NAME, ws_id)
+        except RailwayError:
+            # Railway allows only 1 project per 30s per workspace — wait & retry once
+            await asyncio.sleep(35)
+            proj = await run_blocking(api.create_project, config.PROJECT_NAME, ws_id)
         pid = proj["id"]
         envs = await run_blocking(api.get_environments, pid)
         env_id = envs[0]["id"] if envs else ""
