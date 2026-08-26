@@ -16,7 +16,7 @@ import time
 import uuid
 
 import config
-from errors import AppError, PanelError
+from errors import AppError, PanelError, LimitError
 from railway import Railway
 from xui import Panel, vless_link
 
@@ -55,16 +55,35 @@ class Wizard:
             async with sem:
                 try:
                     s = await asyncio.to_thread(self.api.create_service, p, self.project_id)
+                except AppError as e:
+                    self.errors.append(f"{p}: {e.user_msg[:80]}")
+                    log.warning("create %s: %s", p, e)
+                    return
+                # service EXISTS now — always track it, whatever happens next
+                entry = {"name": p, "sid": s["id"], "url": "", "status": "WAITING"}
+                self.panels.append(entry)
+                try:
                     await asyncio.to_thread(self.api.deploy, s["id"], self.env_id)
+                except LimitError as e:
+                    self.errors.append(f"{p} deploy: {e.user_msg[:60]}")
+                    entry["status"] = "LIMIT"
+                    return
+                except AppError as e:
+                    self.errors.append(f"{p} deploy: {e.user_msg[:60]}")
+                try:
                     dom = await asyncio.to_thread(self.api.create_domain,
                                                   s["id"], self.env_id,
                                                   config.DOMAIN_PORT)
-                    self.panels.append({"name": p, "sid": s["id"],
-                                        "url": f"https://{dom}" if dom else "",
-                                        "status": "WAITING"})
+                    if dom:
+                        entry["url"] = f"https://{dom}"
                 except AppError as e:
-                    self.errors.append(f"{p}: {e.user_msg[:80]}")
-                    log.warning("provision %s: %s", p, e)
+                    log.warning("domain %s: %s", p, e)
+
+        await asyncio.gather(*(make(n) for n in config.PANELS))
+        if not self.panels:
+            reason = "; ".join(self.errors[:3]) or "دلیل نامشخص"
+            self.fail(f"هیچ سرویسی ساخته نشد.\n🔍 {reason}")
+            return False
 
         await asyncio.gather(*(make(n) for n in config.PANELS))
         if not self.panels:
@@ -89,7 +108,7 @@ class Wizard:
                     pass
                 else:
                     still.append(p)
-            done = len(self.panels) - len(still)
+            done = len([p for p in self.panels if p.get("status") not in ("WAITING", "DEPLOYING", "BUILDING")])
             await status_cb(_bar(2, total,
                             f"📡 SUCCESS {done}/{len(self.panels)}",
                             _rows(self.panels)))
