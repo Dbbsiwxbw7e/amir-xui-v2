@@ -8,7 +8,7 @@ import requests
 import config
 from errors import AuthError, LimitError, NetworkError, AppError
 
-URL = "https://api.railway.app/graphql/v2"
+URL = "https://backboard.railway.com/graphql/v2"
 HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "railway-cli/5.30.4",   # avoids masked 400 responses
@@ -29,8 +29,8 @@ class Railway:
 
         if r.status_code == 401:
             raise AuthError
-        if r.status_code != 200 or b"Problem processing request" in r.content[:400]:
-            # masked error → could be rate limit; caller may retry once
+        if r.status_code == 400:
+            # masked error on mutations → rate limit / quota; caller may retry once
             raise LimitError
         data = r.json()
         if data.get("errors"):
