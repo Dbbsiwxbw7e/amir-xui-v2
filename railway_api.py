@@ -15,6 +15,8 @@ class RailwayAPI:
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "User-Agent": "railway-cli/5.30.4",
+            "Accept": "*/*",
         }
 
     def gql(self, query: str, variables: dict | None = None) -> dict:
