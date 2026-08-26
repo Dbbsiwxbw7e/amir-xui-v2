@@ -23,9 +23,13 @@ class Accounts:
 
     def _save(self):
         try:
+            os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
             with open(self.path + ".tmp", "w") as f: json.dump(self._d, f)
             os.replace(self.path + ".tmp", self.path)
-        except Exception: pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "ذخیره اکانت‌ها ناموفق (%s) — بدون Volume روی /data اکانت‌ها بعد از ری‌استارت پاک می‌شوند!", e)
 
     def add(self, uid, label, token, email=""):
         with self._lock:

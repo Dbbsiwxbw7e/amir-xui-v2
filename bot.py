@@ -483,6 +483,15 @@ async def cmd_status(update, ctx):
 
 
 
+
+async def cmd_accounts(update, ctx):
+    uid = update.effective_user.id
+    refresh_active(ctx, uid)
+    await update.message.reply_text(
+        ui.accounts_text(ACC.list(uid), ACC.active_label(uid)),
+        reply_markup=ui.accounts_keyboard(ACC.list(uid)), parse_mode="HTML")
+
+
 async def cmd_whoami(update, ctx):
     """Debug: show which Railway account is currently active."""
     refresh_active(ctx, update.effective_user.id)
@@ -569,6 +578,7 @@ def main():
     app.add_handler(CommandHandler("deploy", cmd_deploy))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("whoami", cmd_whoami))
+    app.add_handler(CommandHandler("accounts", cmd_accounts))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
