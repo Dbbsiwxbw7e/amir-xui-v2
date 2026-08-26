@@ -42,9 +42,9 @@ def origin(update: Update):
     return None
 
 
-async def safe_edit(qmsg, text, kb=None):
+async def safe_edit(qmsg, text, keyboard=None):
     try:
-        await qmsg.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        await qmsg.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
     except Exception:
         pass
 
